@@ -1,131 +1,143 @@
 #!/usr/bin/python
 # coding=utf-8
 
-# od Miry na replace apostrofu na uvozovky
-# replace("'", '"').replace('": u"', '": "').replace("\\x", "")
-
 import json
+import re
+import MySQLdb
 
-def cutPrefix(str):
-        i = 0
-        for letter in line:
-                i += 1
-                if (letter=='['):
-                        break
-        str = str[i:]
-        return str
+# TODO: v logu se muzou nachazet multirequest a multiresponsy!
 
-def getCompany(str):
-        company = ""
-        for letter in str:
-                if (letter==']'):
-                        break
-                company += letter
-        return company
+with open('config') as f:
+        config = f.readline()
 
-def cutHashReverse(str):
-	i = 0
-	for c in reversed(str):
-		i += 1
-		if (c=='['):
-                        break
-     	str = str[:-i]
-     	return str
+# parsuje config
+config = config.split('\n')[0].split(',')
 
-def cutInfoReverse(str):
-	i = 0
-	for c in reversed(str):
-		i += 1
-		if (c=='{'):
-                	break
-     	str = str[:-i]
-     	return str
+# pripojeni k db
+db = MySQLdb.connect(host=config[0],
+                     port=int(config[1]),
+                     user=config[2],
+                     passwd=config[3],
+                     db=config[4])
+
+# # you must create a Cursor object. It will let
+# #  you execute all the queries you need
+cur = db.cursor()
 
 # with open('theSmallestDataset.txt') as f:
 # with open('smallDataset.txt') as f:
 with open('normalDataset.txt') as f:
-        lines = f.readlines()
+	lines = f.readlines()
 
-# s = '{"foo": 6, "bar": [1, 2, 3]}'
-# d = json.loads(s)
-# print isinstance(d, dict)
-# print d
+def processesPrefix(str):
+	# odreze bordel na zacatku
+	str = str[15:]
+	# odreze vsechno az po company
+	str = str.split('[', 2)[2]
+	# ulozi a odreze company
+	str = str.split(']', 1)
+	company = str[0]
+	str = str[1]
+	# rozdeli line na info a zbytek
+	str = str.split('{', 1)
+
+	info = None
+	if (str[0].find("response")>0):
+		info = "resp" 
+	elif (str[0].find("request")>0):
+		info = "req"
+	str = "{" + str[1]
+	return str, company, info
+
+def processesSufix(str):
+	# odreze vsechno az po '}'
+	return re.sub('} .*$', '}', str)
+
+def validateJson(str, info):
+	if (info=="req"):
+		# prohodi uvozovky za apostrofy a opacne
+		str = str.replace('\"', 'X@X@X@X').replace("'", '"').replace('": u"', '": "')
+		str = str.replace("\\x", "").replace('X@X@X@X', '\'')
+	return str
+
+def getJson(str):
+	str, company, info = processesPrefix(str)
+	if info in ["resp", "req"]:
+		str = processesSufix(str)
+		str = validateJson(str, info)
+		return str, company, info
+	return str, company, None
+
+# ziska vitezne bids z db
+def getWinningBids():
+	query = ("SELECT dsp_bid.original_id, dsp_imp.win, dsp_imp.bidfloor, dsp_imp.cpt, dsp_imp.auction_price" 
+	+ " FROM dsp_bid INNER JOIN dsp_imp ON (dsp_imp.bid_id=dsp_bid.id) WHERE dsp_bid.original_id IN (")
+	responses = {}
+	winningBids = {}
+
+	for line in lines:
+		jsonStr, company, info = getJson(line)
+
+		if info and info in ["resp"]:
+			data = json.loads(jsonStr)
+			# ziska id responsu
+			query += str("\"") + data['id'] + str("\",")
+
+			if len(data['seatbid'])!=1:
+				print len(data['seatbid'])
+				# tady je potreba pracovat s multireguestama apod.
+
+			# data = data['seatbid'][0]['bid'][0]['price']
+
+			
+			# ['seatbid'][0]
 
 
-print "SELECT * FROM dsp_bid WHERE original_id IN ("
+			# ['bid']['price']
+			# naplni responses
+			# responses[data['id']]={
+			# 	'price':,
+			# 	'cur':data['cur']
+			# }
 
-	# 4565510a-7fcb-4748-a152-a7c62e16ecd2") limit 10;"
 
-for line in lines:
-	# print "---------------------------------"
-	# odreze datum
-	if (line.find("request", 50, 70)>0):
-		# print line
-		# odreze datum
-		line = line[34:]
-		# odreze id
-		line = cutPrefix(line)
-		company = getCompany(line)
-		# print "REQUEST["+str(company)+"]"
-		# odreze company a jmeno logu
-		line = line[(len(company)+2+len("request")+2):]
-		# odreze konec
-		# line = line[:-43]
-		line = cutInfoReverse(line)
-		line = cutHashReverse(line)
+	query += "\"\");"
 
+	cur.execute(query)
+	for row in cur.fetchall():
+		# klicem je original_id
+		winningBids[row[0]]={
+			'win':row[1],
+			'bidfloor':row[2],
+			'cpt':row[3],
+			'auction_price':row[4]
+		}
 		
-		# nahradi apostrofy za uvozovky
-		# ten overkill s XXXXXXX je tam kvuli tomu, abychom puvodni uvozovku mohl prevest na apostrof
-		line = line.replace('\"', 'XXXXXXX').replace("'", '"').replace('": u"', '": "').replace("\\x", "").replace('XXXXXXX', '\'')
+	return winningBids, responses
 
+def getImport(winningBids):
+	requestsNr = responsesNr = 0
+	
+	for line in lines:
+		jsonStr, company, info = getJson(line)
 
-		# print line
-		# nacte do slovniku
-		d = json.loads(line)
+		if info and info in ["req", "resp"]:
+			data = json.loads(jsonStr)
+			if info=="req":
+				requestsNr += 1
+				# prohodiint "INSERT INTO dostam12_ks.logs(value1,...) VALUES (value1,...);"
+			if info=="resp":
+				responsesNr += 1
 
-		# insert = "INSERT INTO dostam12_ks.logs(value1,...) VALUES (value1,...);"
-		# query = "INSERT INTO accesslog_ks.logs(user,date,webpage,severity) VALUES ('#{user}','#{date}','#{site}','#{sev}');";
-		# print insert
+	return requestsNr, responsesNr
 
-	elif (line.find("response", 40, 70)>0):
-		# print line
-		# odreze datum
-		line = line[21:]
-		# odreze id
-		line = cutPrefix(line)
-		company = getCompany(line)
-		# print "RESPONSE["+str(company)+"]"
-		line = line[(len(company)+2+len("response")+2):]
+def main():
+	winningBids, responses = getWinningBids()
+	requestsNr, responsesNr = getImport(winningBids)
 
-		# odreze time
-		i = 0
-		for letter in line:
-			if (letter=='{'):
-				break
-			i += 1
-		line = line[i:]
-		# odreze konec (tohle by se melo jeste postelo)
-		line = cutInfoReverse(line)
-		line = cutHashReverse(line)
+	# print winningBids
+	print "responsesNr = " + str(responsesNr)
+	print "requestsNr  = " + str(requestsNr)
 
-		# print line
-		# nacte do slovniku
-		d = json.loads(line)
-
-		# ziska id requestu a responsu
-		print str("\"") + d['id'].lower()+str("\",")
-
-
-        # i = 0
-        # for letter in line:
-        #         i += 1
-        #         if (letter=='['):
-        #                 break
-        # odreze dalsi znaky
-        # line = line[i:]
-        # nacte company
-        company = ""
-
-
-print "\"\") LIMIT 100;"
+if __name__ == "__main__":
+    main()
