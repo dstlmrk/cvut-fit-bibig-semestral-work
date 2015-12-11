@@ -177,7 +177,8 @@ def getImport(lines, responses):
 					d = loadDataForInsert(data, responses, company, dt)
 					i += 1
 					query = ("INSERT INTO dostam12_ks.logs("
-						+ "id,imp_id,company,website,app,price,cur,win,bidfloor,cpt,auction_price,datetime)"
+						+ "id,imp_id,company,website,app,price,cur,"
+						+ "win,bidfloor,cpt,auction_price,datetime)"
 						+ " VALUES ("
 						+ "%s"  % (getCqlStr(d['id']))
 						+ ",%s" % getCqlNum(d['imp_id'])
