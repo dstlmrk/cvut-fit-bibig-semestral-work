@@ -6,11 +6,13 @@ import re
 import MySQLdb
 from datetime import datetime
 
+importFile = 'insert2.cql'
+
 def loadFile():
 	# with open('./dataset/theSmallestDataset.txt') as f:
-	# with open('./dataset/smallDataset.txt') as f:
+	with open('./dataset/smallDataset.txt') as f:
 	# with open('./dataset/normalDataset.txt') as f:
-	with open('./dataset/bigDataset.txt') as f:
+	# with open('./dataset/bigDataset.txt') as f:
 	# with open('./dataset/test.txt') as f:
 		return f.readlines()
 
@@ -20,16 +22,10 @@ def getCqlDatetimeFormat(dtStr):
 	return dtStr
 
 def getCqlStr(str):
-	if str is None:
-		return 'NULL'
-	else:
-		return ("\'" + str + "\'")
+	return 'NULL' if str is None else ("\'" + str + "\'")
 
 def getCqlNum(str):
-	if str is None:
-		return 'NULL'
-	else:
-		return str
+	return 'NULL' if str is None else str
 
 def initDb():
 	with open('config') as f:
@@ -63,7 +59,7 @@ def processesPrefix(str):
 	str = str.split('{', 1)
 	info = None
 	if (str[0].find("response")>0):
-		info = "resp" 
+		info = "resp"
 	elif (str[0].find("request")>0):
 		info = "req"
 	str = "{" + str[1]
@@ -159,7 +155,7 @@ def getImport(lines, responses):
 	i = 0
 
 	# clear output file
-	writeToFile('', 'insert.cql', 'w')
+	writeToFile('', importFile, 'w')
 	
 	for line in lines:
 		jsonStr, company, info, dt = getJson(line)
@@ -194,18 +190,21 @@ def getImport(lines, responses):
 						+ ",%s" % getCqlStr(d['datetime'])
 						+ ");\n"
 					)
-					writeToFile(query, 'insert.cql')
+					writeToFile(query, importFile)
 			elif info=="resp":
 				responsesNr += 1
 				if (len(data['seatbid'])>1 or len(data['seatbid'][0]['bid'])>1):
 					multiresponsesNr += 1
 			else:
-				print "ERROR:"
+				# testovaci vypis
+				print "---ERROR---"
 				print jsonStr
 				print line
 
 	print "multirequestsNr  = " + str(multirequestsNr)
 	print "multiresponsesNr = " + str(multiresponsesNr)
+	# kontrola, zda sedi pocet responses s temi, co jsem ulozil v getBids
+	# melo by jich byt o neco mene, protoze nezpracovavam vsechny multiresponses
 	print "i = " + str(i) 
 	return requestsNr, responsesNr
 
